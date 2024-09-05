@@ -1,0 +1,29 @@
+# Virtual environment
+myenv/
+venv/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+
+# Log files
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE-specific files
+.vscode/
+.idea/
+
+# FAISS index
+*.faiss
+
+# Dependency files (if in a subfolder like /Lib for Windows)
+Lib/
+Scripts/

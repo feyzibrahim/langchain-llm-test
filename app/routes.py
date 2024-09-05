@@ -1,40 +1,63 @@
+from openai import OpenAI
+import requests
 from flask import Blueprint, request, jsonify
-from langchain.document_loaders import TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
-from openai import ChatCompletion
+
+client = OpenAI()
 
 bp = Blueprint('routes', __name__)
 
+OCR_SERVER_URL = ''
+
+def extract_text_from_ocr_server(file):
+    # Send the file to the OCR server
+    response = requests.post(OCR_SERVER_URL, files={'file': file})
+    response.raise_for_status()  # Raise an error for bad responses
+    return response.text
+
 @bp.route('/process', methods=['POST'])
 def process_files():
-    # Retrieve patient and policy files from the request
-    patient_data = request.files['patient_file'].read().decode('utf-8')
-    policy_data = request.files['policy_file'].read().decode('utf-8')
-
-    # Chunking the data
+    # Retrieve and process PDF files
+    patient_file = request.files['patient_file']
+    policy_file = request.files['policy_file']
+    
+    # Extract text from PDFs using the OCR server
+    patient_text = extract_text_from_ocr_server(patient_file)
+    policy_text = extract_text_from_ocr_server(policy_file)
+    
+    # Split text into chunks
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    patient_chunks = text_splitter.split_text(patient_data)
-    policy_chunks = text_splitter.split_text(policy_data)
+    patient_chunks = text_splitter.split_text(patient_text)
+    policy_chunks = text_splitter.split_text(policy_text)
 
-    # Embedding the chunks using OpenAI embeddings
-    embeddings = OpenAIEmbeddings()
-    patient_store = FAISS.from_texts(patient_chunks, embeddings)
-    policy_store = FAISS.from_texts(policy_chunks, embeddings)
+    # Summarize and analyze
+    patient_summary = summarize_chunks(patient_chunks)
+    policy_summary = summarize_chunks(policy_chunks)
 
-    # Example logic for generating a recommendation
-    # For the sake of this demo, let's retrieve a few relevant chunks and pass them to GPT
-    relevant_patient = patient_store.similarity_search('specific condition or data', k=3)
-    relevant_policy = policy_store.similarity_search('specific policy rule', k=3)
+ 
 
-    # Now process the chunks with GPT
-    gpt_input = "\n".join(relevant_patient + relevant_policy)
-    response = ChatCompletion.create(
-        model="gpt-4",
-        prompt=gpt_input,
-        max_tokens=500
+    # Use the new OpenAI API interface
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are an assistant that provides recommendations based on the provided data."},
+            {"role": "user", "content": f"Based on the following patient data:\n{patient_summary}\nand policy data:\n{policy_summary}, provide a recommendation for prior authorization."}
+        ],
+        max_tokens=1000
     )
     
-    # Return the GPT's recommendation
-    return jsonify({'recommendation': response.choices[0].text.strip()})
+    return jsonify({'recommendation': response.choices[0].message['content'].strip()})
+
+def summarize_chunks(chunks):
+    summary = ""
+    for chunk in chunks:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are an assistant that summarizes text."},
+                {"role": "user", "content": f"Summarize the following text:\n\n{chunk}"}
+            ],
+            max_tokens=500
+        )
+        summary += response.choices[0].message['content'].strip() + "\n"
+    return summary
